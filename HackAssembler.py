@@ -4,12 +4,12 @@ from enum import Enum
 
 
 class Parser:
-    class Symbols:
-        comment = "//"
-        a_instruction = "@"
-        c_instruction_dest = "="
-        c_instruction_jump = ";"
-        label_declaration = "("
+    class Symbols(Enum):
+        COMMENT = "//"
+        A_INSTRUCTION = "@"
+        C_INSTRUCTION_DEST = "="
+        C_INSTRUCTION_JUMP = ";"
+        LABEL = "("
 
     class Command(Enum):
         A_INSTRUCTION = 0
@@ -69,14 +69,20 @@ class Parser:
 
     def get_destination(self):
         if self.current_command_type == Parser.Command.C_INSTRUCTION:
-            end_index = self.current_command.find(Parser.Symbols.c_instruction_dest)
+            end_index = self.current_command.find(
+                Parser.Symbols.C_INSTRUCTION_DEST.value
+            )
             if end_index != -1:
                 return self.current_command[:end_index]
 
     def get_computation(self):
         if self.current_command_type == Parser.Command.C_INSTRUCTION:
-            start_index = self.current_command.find(Parser.Symbols.c_instruction_dest)
-            end_index = self.current_command.find(Parser.Symbols.c_instruction_jump)
+            start_index = self.current_command.find(
+                Parser.Symbols.C_INSTRUCTION_DEST.value
+            )
+            end_index = self.current_command.find(
+                Parser.Symbols.C_INSTRUCTION_JUMP.value
+            )
 
             if end_index == -1:
                 end_index = len(self.current_command)
@@ -85,7 +91,9 @@ class Parser:
 
     def get_jump(self):
         if self.current_command_type == Parser.Command.C_INSTRUCTION:
-            start_index = self.current_command.find(Parser.Symbols.c_instruction_jump)
+            start_index = self.current_command.find(
+                Parser.Symbols.C_INSTRUCTION_JUMP.value
+            )
 
             if start_index != -1:
                 return self.current_command[(start_index + 1) :]
@@ -100,9 +108,9 @@ class Parser:
         if not command:
             return Parser.Command.UNKNOWN
 
-        if command[0] == Parser.Symbols.a_instruction:
+        if command[0] == Parser.Symbols.A_INSTRUCTION.value:
             return Parser.Command.A_INSTRUCTION
-        elif command[0] == Parser.Symbols.label_declaration:
+        elif command[0] == Parser.Symbols.LABEL.value:
             return Parser.Command.LABEL
         else:
             return Parser.Command.C_INSTRUCTION
@@ -122,7 +130,7 @@ class Parser:
             return line
 
     def __strip_comment(self, line):
-        return line.split(Parser.Symbols.comment)[0]
+        return line.split(Parser.Symbols.COMMENT.value)[0]
 
     def __strip_whitespace(self, line):
         return line.strip()
