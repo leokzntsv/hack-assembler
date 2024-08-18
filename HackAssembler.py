@@ -3,6 +3,51 @@ import sys
 from enum import Enum
 
 
+class Cmd:
+    def visit(self, visitor):
+        return ""
+
+
+class LabelCmd(Cmd):
+    def __init__(self, command: str, command_number: int):
+        self.command = command
+        self.command_number = command_number
+        super().__init__()
+
+    def visit(self, visitor):
+        return visitor.label(self)
+
+
+class AInstructionCmd(Cmd):
+    def __init__(self, command: str):
+        self.command = command
+        super().__init__()
+
+    def visit(self, visitor):
+        return visitor.a_instruction(self)
+
+
+class CInstructionCmd(Cmd):
+    def __init__(self, command: str):
+        self.command = command
+        super().__init__()
+
+    def visit(self, visitor):
+        return visitor.c_instruction(self)
+
+
+# Интерфейс
+class CmdVisitor:
+    def label(self, label: LabelCmd):
+        assert False
+
+    def a_instruction(self, a_instruction: AInstructionCmd):
+        assert False
+
+    def c_instruction(self, c_instruction: CInstructionCmd):
+        assert False
+
+
 class Parser:
     class Symbols(Enum):
         COMMENT = "//"
@@ -10,12 +55,6 @@ class Parser:
         C_INSTRUCTION_DEST = "="
         C_INSTRUCTION_JUMP = ";"
         LABEL = "("
-
-    class Command(Enum):
-        A_INSTRUCTION = 0
-        C_INSTRUCTION = 1
-        LABEL = 2
-        UNKNOWN = 3
 
     def __init__(self, file_name):
         self.file_name = file_name
@@ -39,81 +78,67 @@ class Parser:
 
         return False
 
-    def advance(self):
+    def advance(self) -> Cmd:
         line = self.__get_next_line()
 
         if not line:
-            return
+            return Cmd()
 
         self.position += len(line) + 1
         processed_line = self.__process_line(line=line)
 
         if processed_line:
-            self.current_command_type = self.__get_command_type(processed_line)
-            self.current_command = processed_line
+            command = self.__parse_command(processed_line)
 
-            if self.current_command_type != Parser.Command.LABEL:
+            if type(command) is not LabelCmd:
                 self.current_command_number += 1
+
+            return command
         else:
-            self.advance()
+            return self.advance()
 
     def reset(self):
         self.position = 0
         self.current_command_number = -1
-        self.current_command = ""
-        self.current_command_type = Parser.Command.UNKNOWN
 
-    def get_address(self):
-        if self.current_command_type == Parser.Command.A_INSTRUCTION:
-            return self.current_command[1:]
+    def parse_label(self, label_cmd: LabelCmd):
+        return label_cmd.command[1:-1]
 
-    def get_destination(self):
-        if self.current_command_type == Parser.Command.C_INSTRUCTION:
-            end_index = self.current_command.find(
-                Parser.Symbols.C_INSTRUCTION_DEST.value
-            )
-            if end_index != -1:
-                return self.current_command[:end_index]
+    def parse_address(self, ai_cmd: AInstructionCmd):
+        return ai_cmd.command[1:]
 
-    def get_computation(self):
-        if self.current_command_type == Parser.Command.C_INSTRUCTION:
-            start_index = self.current_command.find(
-                Parser.Symbols.C_INSTRUCTION_DEST.value
-            )
-            end_index = self.current_command.find(
-                Parser.Symbols.C_INSTRUCTION_JUMP.value
-            )
+    def parse_dest(self, ci_cmd: CInstructionCmd):
+        end_index = ci_cmd.command.find(Parser.Symbols.C_INSTRUCTION_DEST.value)
+        if end_index != -1:
+            return ci_cmd.command[:end_index]
 
-            if end_index == -1:
-                end_index = len(self.current_command)
+    def parse_comp(self, ci_cmd: CInstructionCmd):
+        command = ci_cmd.command
+        start_index = command.find(Parser.Symbols.C_INSTRUCTION_DEST.value)
+        end_index = command.find(Parser.Symbols.C_INSTRUCTION_JUMP.value)
 
-            return self.current_command[(start_index + 1) : end_index]
+        if end_index == -1:
+            end_index = len(command)
 
-    def get_jump(self):
-        if self.current_command_type == Parser.Command.C_INSTRUCTION:
-            start_index = self.current_command.find(
-                Parser.Symbols.C_INSTRUCTION_JUMP.value
-            )
+        return command[(start_index + 1) : end_index]
 
-            if start_index != -1:
-                return self.current_command[(start_index + 1) :]
+    def parse_jump(self, ci_cmd: CInstructionCmd):
+        start_index = ci_cmd.command.find(Parser.Symbols.C_INSTRUCTION_JUMP.value)
 
-    def get_label(self):
-        if self.current_command_type == Parser.Command.LABEL:
-            return self.current_command[1:-1]
+        if start_index != -1:
+            return ci_cmd.command[(start_index + 1) :]
 
     # Private Methods
 
-    def __get_command_type(self, command):
-        if not command:
-            return Parser.Command.UNKNOWN
-
-        if command[0] == Parser.Symbols.A_INSTRUCTION.value:
-            return Parser.Command.A_INSTRUCTION
-        elif command[0] == Parser.Symbols.LABEL.value:
-            return Parser.Command.LABEL
+    def __parse_command(self, line) -> Cmd:
+        if line[0] == Parser.Symbols.A_INSTRUCTION.value:
+            return AInstructionCmd(line)
+        elif line[0] == Parser.Symbols.LABEL.value:
+            return LabelCmd(
+                command=line, command_number=self.current_command_number + 1
+            )
         else:
-            return Parser.Command.C_INSTRUCTION
+            return CInstructionCmd(line)
 
     def __process_line(self, line):
         line = self.__strip_comment(line=line)
@@ -124,9 +149,9 @@ class Parser:
         return self.__get_line(position=self.position)
 
     def __get_line(self, position):
-        with open(self.file_name, "r") as file:
-            file.seek(position)
-            line = file.readline()
+        with open(self.file_name, "r") as f:
+            f.seek(position)
+            line = f.readline()
             return line
 
     def __strip_comment(self, line):
@@ -136,7 +161,36 @@ class Parser:
         return line.strip()
 
 
-class Translator:
+class SymbolTable:
+    table = {
+        "R0": "0",
+        "R1": "1",
+        "R2": "2",
+        "R3": "3",
+        "R4": "4",
+        "R5": "5",
+        "R6": "6",
+        "R7": "7",
+        "R8": "8",
+        "R9": "9",
+        "R10": "10",
+        "R11": "11",
+        "R12": "12",
+        "R13": "13",
+        "R14": "14",
+        "R15": "15",
+        "SCREEN": "16384",
+        "KBD": "24576",
+        "SP": "0",
+        "LCL": "1",
+        "ARG": "2",
+        "THIS": "3",
+        "THAT": "4",
+    }
+
+
+# Конкретный посетитель
+class Translator(CmdVisitor):
     comp_table = {
         "0": "0101010",
         "1": "0111111",
@@ -190,27 +244,59 @@ class Translator:
         "JMP": "111",
     }
 
-    def address_bits(self, address):
-        binary_address = bin(int(address))[2:]
-        while len(binary_address) < 15:
-            binary_address = "0" + binary_address
-        return binary_address
+    def __init__(self, parser: Parser, symbol_table: SymbolTable):
+        self.parser = parser
+        self.symbol_table = symbol_table
+        self.symbol_memory_address = 16
+        super().__init__()
 
-    def dest_bits(self, instruction):
-        if instruction:
-            return self.dest_table[instruction]
+    def label(self, label: LabelCmd):
+        # label_symbol = self.parser.parse_label(label)
+        # if not label_symbol in symbol_table.table:
+        #     symbol_table.table[label_symbol] = label.command_number
+        return None
+
+    def a_instruction(self, a_instruction: AInstructionCmd):
+        address = self.parser.parse_address(a_instruction)
+
+        if address.isdigit():
+            binary_address = bin(int(address))[2:]
         else:
-            return self.dest_table["null"]
+            if address in symbol_table.table:
+                binary_address = bin(int(symbol_table.table[address]))[2:]
+            else:
+                symbol_table.table[address] = self.symbol_memory_address
+                binary_address = bin(int(self.symbol_memory_address))[2:]
+                self.symbol_memory_address += 1
 
-    def comp_bits(self, instruction):
-        if instruction:
-            return self.comp_table[instruction]
+        instruction = []
+        while len(binary_address) + len(instruction) < 15:
+            instruction.append("0")
 
-    def jump_bits(self, instruction):
-        if instruction:
-            return self.jump_table[instruction]
+        instruction.append("0")  # op-code
+        instruction.append(binary_address)
+
+        return "".join(instruction)
+
+    def c_instruction(self, c_instruction: CInstructionCmd):
+        instruction = ["111"]
+
+        comp = parser.parse_comp(c_instruction)
+        instruction.append(self.comp_table[comp])
+
+        dest = parser.parse_dest(c_instruction)
+        if dest:
+            instruction.append(self.dest_table[dest])
         else:
-            return self.jump_table["null"]
+            instruction.append(self.dest_table["null"])
+
+        jump = parser.parse_jump(c_instruction)
+        if jump:
+            instruction.append(self.jump_table[jump])
+        else:
+            instruction.append(self.jump_table["null"])
+
+        return "".join(instruction)
 
 
 if len(sys.argv) > 1:
@@ -230,83 +316,26 @@ if not os.path.exists(full_file_name):
     sys.exit(1)
 
 parser = Parser(file_name=full_file_name)
-translator = Translator()
-symbol_table = {
-    "R0": "0",
-    "R1": "1",
-    "R2": "2",
-    "R3": "3",
-    "R4": "4",
-    "R5": "5",
-    "R6": "6",
-    "R7": "7",
-    "R8": "8",
-    "R9": "9",
-    "R10": "10",
-    "R11": "11",
-    "R12": "12",
-    "R13": "13",
-    "R14": "14",
-    "R15": "15",
-    "SCREEN": "16384",
-    "KBD": "24576",
-    "SP": "0",
-    "LCL": "1",
-    "ARG": "2",
-    "THIS": "3",
-    "THAT": "4",
-}
+symbol_table = SymbolTable()
+translator = Translator(parser, symbol_table)
+
 
 # First Pass
+
 while parser.has_more_commands():
-    parser.advance()
-    label = parser.get_label()
-    if label:
-        symbol_table[label] = str(parser.current_command_number + 1)
+    cmd = parser.advance()
+    if type(cmd) is LabelCmd:
+        label = parser.parse_label(cmd)
+        symbol_table.table[label] = cmd.command_number
+
 
 # Second Pass
+
 parser.reset()
-symbol_memory_address = 16
 
-with open(f"{file_name}.hack", "w") as file:
+with open(f"{file_name}.hack", "w") as f:
     while parser.has_more_commands():
-        parser.advance()
-
-        result_instruction_bits = ""
-
-        address_symbol = parser.get_address()
-        comp_instruction = parser.get_computation()
-
-        if address_symbol:
-            if address_symbol.isdigit():
-                address = address_symbol
-                address_bits = translator.address_bits(address=address_symbol)
-            else:
-                if address_symbol in symbol_table:
-                    address_bits = translator.address_bits(
-                        address=symbol_table[address_symbol]
-                    )
-                    address = symbol_table[address_symbol]
-                else:
-                    symbol_table[address_symbol] = symbol_memory_address
-                    address_bits = translator.address_bits(
-                        address=symbol_memory_address
-                    )
-                    symbol_memory_address += 1
-
-            result_instruction_bits += "0" + address_bits
-
-        elif comp_instruction:
-            dest_instruction = parser.get_destination()
-            jump_instruction = parser.get_jump()
-            dest_bits = translator.dest_bits(instruction=dest_instruction)
-            comp_bits = translator.comp_bits(instruction=comp_instruction)
-            jump_bits = translator.jump_bits(instruction=jump_instruction)
-
-            result_instruction_bits += "111" + comp_bits + dest_bits + jump_bits
-
-        else:
-            continue
-
-        if result_instruction_bits:
-            file.write(result_instruction_bits + "\n")
+        cmd = parser.advance()
+        instruction_bits = cmd.visit(translator)
+        if instruction_bits:
+            f.write(instruction_bits + "\n")
