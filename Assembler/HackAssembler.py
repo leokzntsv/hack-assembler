@@ -31,7 +31,7 @@ translator = Translator(parser, symbol_table)
 
 while parser.has_more_commands():
     cmd = parser.advance()
-    if type(cmd) is LabelCmd:
+    if isinstance(cmd, LabelCmd):
         label = parser.parse_label(cmd)
         symbol_table.table[label] = cmd.command_number
 
