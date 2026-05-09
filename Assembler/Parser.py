@@ -15,7 +15,7 @@ class Parser:
         self.file_name = file_name
         self.reset()
 
-    def has_more_commands(self):
+    def has_more_commands(self) -> bool:
         current_position = self.position
         has_more_lines = True
 
